@@ -2,7 +2,7 @@ from typing import Tuple, List, Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+from numba import jit
 
 ##### Step 1 #####
 class System:
@@ -14,6 +14,7 @@ class System:
         self.v = v
         self.m = m
         self.G = G
+
 
     def center_of_mass_correction(self) -> None:
         """Set center of mass of position and velocity to zero"""
@@ -496,6 +497,25 @@ def acceleration(
     # Compute the acceleration
     a[:] = G * np.einsum("ijk,ij,i->jk", r_ij, inv_r_cubed, m)
 
+@jit(nopython=True)
+def acceleration_numba(a, x, m, G, num_particles):
+    """Numba-optimized gravitational acceleration"""
+    a.fill(0.0)
+    
+    for i in range(num_particles):
+        for j in range(num_particles):
+            if i != j:
+                dx = x[j, 0] - x[i, 0]
+                dy = x[j, 1] - x[i, 1]
+                dz = x[j, 2] - x[i, 2]
+                
+                r_norm = (dx*dx + dy*dy + dz*dz)**0.5
+                inv_r_cubed = 1.0 / (r_norm * r_norm * r_norm)
+                
+                a[i, 0] += G * m[j] * dx * inv_r_cubed
+                a[i, 1] += G * m[j] * dy * inv_r_cubed
+                a[i, 2] += G * m[j] * dz * inv_r_cubed
+
 
 ##### Step 3 #####
 def euler(a: np.ndarray, system: System, dt: float) -> None:
@@ -515,4 +535,32 @@ def euler(a: np.ndarray, system: System, dt: float) -> None:
     system.x += system.v * dt
     system.v += a * dt
 
+
+@jit(nopython=True)
+def velocity_verlet_numba(a, x, v, m, G, num_particles, dt):
+    """Velocity Verlet integration - stable for orbits"""
+    # Store old accelerations
+    a_old = a.copy()
+    
+    # Update positions: x = x + v*dt + 0.5*a*dt^2
+    x[:] = x + v * dt + 0.5 * a_old * dt * dt
+    
+    # Calculate new accelerations at new positions
+    a.fill(0.0)
+    for i in range(num_particles):
+        for j in range(num_particles):
+            if i != j:
+                dx = x[j, 0] - x[i, 0]
+                dy = x[j, 1] - x[i, 1]
+                dz = x[j, 2] - x[i, 2]
+                
+                r_norm = (dx*dx + dy*dy + dz*dz)**0.5
+                inv_r_cubed = 1.0 / (r_norm * r_norm * r_norm)
+                
+                a[i, 0] += G * m[j] * dx * inv_r_cubed
+                a[i, 1] += G * m[j] * dy * inv_r_cubed
+                a[i, 2] += G * m[j] * dz * inv_r_cubed
+    
+    # Update velocities: v = v + 0.5*(a_old + a_new)*dt
+    v[:] = v + 0.5 * (a_old + a) * dt
 

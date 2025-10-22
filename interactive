@@ -34,7 +34,7 @@ class InteractiveSolarSystem:
         
         # Simulation parameters - STABLE VALUES
         self.dt = 5.0  # 5 days per step (stable)
-        self.steps_per_frame = 6  # 6 steps per frame
+        self.steps_per_frame = 100  # 6 steps per frame
         self.current_time = 0.0
         self.trail_length = 300
         
@@ -117,6 +117,9 @@ class InteractiveSolarSystem:
         
         # Acceleration array
         self.a = np.zeros((self.system.num_particles, 3))
+        common.acceleration_numba(self.a, self.system.x, self.system.m,
+                         self.system.G, self.system.num_particles)
+
         
         print(f"Stable setup: {self.steps_per_frame} steps of {self.dt} days per frame")
 
@@ -139,22 +142,14 @@ class InteractiveSolarSystem:
 
     def update_physics(self):
         """Single physics update step with stability"""
-        # Calculate accelerations
-        common.acceleration(self.a, self.system)
-        
-        # Check for instability
-        max_accel = np.max(np.abs(self.a))
-        if max_accel > 1e-2:
-            print(f"Warning: Large acceleration: {max_accel}")
-        
-        # Euler integration
-        self.system.v += self.a * self.dt
-        self.system.x += self.system.v * self.dt
-        
+        # Velocity Verlet handles everything internally
+        common.velocity_verlet_numba(self.a, self.system.x, self.system.v, 
+                                        self.system.m, self.system.G, 
+                                        self.system.num_particles, self.dt)    
         self.current_time += self.dt
-        
-        # Update trails
+
         for i in range(self.system.num_particles):
+            # Update trails
             self.trails[i].append(self.system.x[i].copy())
             if len(self.trails[i]) > self.trail_length:
                 self.trails[i].pop(0)
@@ -230,7 +225,7 @@ class InteractiveSolarSystem:
                                 valinit=17, valstep=1)
         
         ax_speed = plt.axes([0.15, 0.05, 0.65, 0.03], facecolor='lightblue')
-        self.slider_speed = Slider(ax_speed, 'Speed (days/step)', 1, 20, 
+        self.slider_speed = Slider(ax_speed, 'Speed (days/step)', 1, 25, 
                                  valinit=self.dt, valstep=1)
         
         # Connect sliders to functions
@@ -248,7 +243,7 @@ class InteractiveSolarSystem:
         Change simulation speed, but cap it so orbits remain stable.
         val: desired days per step from slider
         """
-        max_days_per_step = 15.0  # beyond this Mercury becomes unstable
+        max_days_per_step = 20.0  # beyond this Mercury becomes unstable
         if val > max_days_per_step:
             print(f"Speed capped at {max_days_per_step} days/step to keep orbits stable.")
             val = max_days_per_step
